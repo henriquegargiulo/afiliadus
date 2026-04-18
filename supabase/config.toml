@@ -12,6 +12,10 @@ verify_jwt = true
 [functions.daily-deal-discovery]
 verify_jwt = false
 
+# daily-discovery: versão cloud-native via SerpAPI (substitui daily-deal-discovery)
+[functions.daily-discovery]
+verify_jwt = false
+
 # minha-curadoria exige usuário autenticado
 [functions.minha-curadoria]
 verify_jwt = true
