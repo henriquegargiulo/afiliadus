@@ -132,60 +132,55 @@ RETURNS TABLE (
 )
 LANGUAGE sql STABLE
 AS $$
-  WITH ultimo_preco AS (
-    SELECT DISTINCT ON (produto_id)
-      produto_id,
-      preco_atual,
-      preco_original,
-      percentual_desconto
-    FROM public.historico_precos
-    ORDER BY produto_id, coletado_em DESC
-  ),
-  media_30d AS (
+  SELECT * FROM (
+    WITH ultimo_preco AS (
+      SELECT DISTINCT ON (produto_id)
+        produto_id,
+        preco_atual,
+        preco_original,
+        percentual_desconto
+      FROM public.historico_precos
+      ORDER BY produto_id, coletado_em DESC
+    ),
+    media_30d AS (
+      SELECT
+        produto_id,
+        AVG(preco_atual) AS media_preco
+      FROM public.historico_precos
+      WHERE coletado_em >= now() - interval '30 days'
+      GROUP BY produto_id
+    )
     SELECT
-      produto_id,
-      AVG(preco_atual) AS media_preco
-    FROM public.historico_precos
-    WHERE coletado_em >= now() - interval '30 days'
-    GROUP BY produto_id
-  )
-  SELECT
-    p.id,
-    p.titulo,
-    p.marketplace_id,
-    p.url_produto,
-    p.url_imagem,
-    up.preco_atual,
-    up.preco_original,
-    ROUND(m.media_preco, 2)                                              AS preco_medio_30d,
-    COALESCE(up.percentual_desconto, 0)                                  AS percentual_desconto,
-    CASE
-      WHEN m.media_preco > 0
-        THEN ROUND(((m.media_preco - up.preco_atual) / m.media_preco * 100), 2)
-      ELSE 0
-    END                                                                  AS desvio_media_pct,
-    p.total_vendas,
-    ROUND((
-      COALESCE(up.percentual_desconto, 0) * 0.4 +
+      p.id                                                                   AS produto_id,
+      p.titulo,
+      p.marketplace_id,
+      p.url_produto,
+      p.url_imagem,
+      up.preco_atual,
+      up.preco_original,
+      ROUND(m.media_preco, 2)                                                AS preco_medio_30d,
+      COALESCE(up.percentual_desconto, 0)                                    AS percentual_desconto,
       CASE
         WHEN m.media_preco > 0
-          THEN GREATEST(((m.media_preco - up.preco_atual) / m.media_preco * 100), 0) * 0.4
+          THEN ROUND(((m.media_preco - up.preco_atual) / m.media_preco * 100), 2)
         ELSE 0
-      END +
-      LEAST(COALESCE(p.total_vendas, 0)::decimal / 1000.0, 100) * 0.2
-    ), 2)                                                                AS score_oportunidade
-  FROM public.produtos p
-  JOIN ultimo_preco up ON up.produto_id = p.id
-  JOIN media_30d    m  ON m.produto_id  = p.id
-  WHERE
-    (p_marketplace_id IS NULL OR p.marketplace_id = p_marketplace_id)
-  HAVING (
-    COALESCE(up.percentual_desconto, 0) * 0.4 +
-    CASE WHEN m.media_preco > 0
-      THEN GREATEST(((m.media_preco - up.preco_atual) / m.media_preco * 100), 0) * 0.4
-    ELSE 0 END +
-    LEAST(COALESCE(p.total_vendas, 0)::decimal / 1000.0, 100) * 0.2
-  ) >= p_min_score
-  ORDER BY score_oportunidade DESC
+      END                                                                    AS desvio_media_pct,
+      p.total_vendas,
+      ROUND((
+        COALESCE(up.percentual_desconto, 0) * 0.4 +
+        CASE
+          WHEN m.media_preco > 0
+            THEN GREATEST(((m.media_preco - up.preco_atual) / m.media_preco * 100), 0) * 0.4
+          ELSE 0
+        END +
+        LEAST(COALESCE(p.total_vendas, 0)::decimal / 1000.0, 100) * 0.2
+      ), 2)                                                                  AS score_oportunidade
+    FROM public.produtos p
+    JOIN ultimo_preco up ON up.produto_id = p.id
+    JOIN media_30d    m  ON m.produto_id  = p.id
+    WHERE (p_marketplace_id IS NULL OR p.marketplace_id = p_marketplace_id)
+  ) sub
+  WHERE sub.score_oportunidade >= p_min_score
+  ORDER BY sub.score_oportunidade DESC
   LIMIT p_limite;
 $$;
