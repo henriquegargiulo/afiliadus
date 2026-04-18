@@ -79,6 +79,8 @@ Deno.serve(async () => {
 
         if (!ofertas.length) continue
 
+        console.log('Payload a enviar:', Object.keys(ofertas[0]), JSON.stringify(ofertas[0]))
+
         const { error: upsertErr } = await admin
           .from('ofertas_curadas')
           .upsert(ofertas, { onConflict: 'user_id,external_id', ignoreDuplicates: false })
