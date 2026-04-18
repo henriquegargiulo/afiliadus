@@ -17,6 +17,7 @@ interface SerpResponse {
 
 export class GoogleShoppingAdapter implements IMarketplaceProvider {
   private readonly apiKey: string
+  public lastRawDebug: Record<string, unknown> = {}
 
   constructor(apiKey: string) {
     this.apiKey = apiKey
@@ -38,15 +39,17 @@ export class GoogleShoppingAdapter implements IMarketplaceProvider {
     const res = await fetch(`${SERP_URL}?${qs}`)
     if (!res.ok) throw new Error(`SerpAPI ${res.status}: ${termo}`)
 
-    const data = (await res.json()) as SerpResponse
+    const data = (await res.json()) as SerpResponse & { error?: string; search_information?: unknown }
+
+    // Expõe dados brutos para diagnóstico via campo público
+    this.lastRawDebug = {
+      total_bruto:      (data.shopping_results ?? []).length,
+      lojas_encontradas: (data.shopping_results ?? []).map(i => i.source),
+      serp_error:       data.error ?? null,
+    }
+
     const items = data.shopping_results ?? []
-
-    // Diagnóstico: log dos resultados brutos antes de qualquer filtro
-    console.log(`[SerpAPI] "${termo}" → ${items.length} resultados brutos`)
-    console.log('[SerpAPI] Lojas encontradas:', items.map(i => i.source))
-
     const comLoja = items.filter(item => detectarLoja(item.source, item.link) !== null)
-    console.log(`[SerpAPI] Após filtro de lojas: ${comLoja.length} produto(s)`)
 
     return comLoja
       .filter(item => {

@@ -52,6 +52,7 @@ Deno.serve(async () => {
       try {
         produtos = await adapter.buscarOfertasPorInteresse(chave, 0)
         log.push(`"${chave}": ${produtos.length} produto(s) encontrado(s)`)
+        log.push(`[debug] ${JSON.stringify(adapter.lastRawDebug)}`)
       } catch (err) {
         log.push(`Erro na busca "${chave}": ${err}`)
         continue
