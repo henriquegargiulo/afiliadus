@@ -51,6 +51,7 @@ Deno.serve(async () => {
 
       for (const interesse of grupo) {
         const ofertas = produtos
+          .filter(p => p.link_afiliado && p.titulo && p.preco_atual)
           .filter(p => {
             if (interesse.desconto_minimo === 0) return true
             if (!p.preco_atual || !p.preco_original) return false
