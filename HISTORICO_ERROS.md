@@ -1,115 +1,126 @@
 # Histórico de Erros e Tentativas de Solução — Afiliadus
 
+---
+
 ## Erro 1 — `flag needs an argument: --project-ref`
-
-**Contexto:** Pipeline do GitHub Actions falhava ao tentar linkar o projeto Supabase.
-
-**Causa:** A variável de ambiente `SUPABASE_PROJECT_ID` estava vazia no GitHub Secrets.
-
-**Solução:** Substituir a variável pelo valor fixo `wfxaeibeyjvgvboypqtd` direto no arquivo do workflow.
+**Causa:** Secret `SUPABASE_PROJECT_ID` vazio no GitHub.
+**Solução:** Hardcoded o project ref direto no workflow.
+**Status:** Resolvido.
 
 ---
 
 ## Erro 2 — `Invalid access token format. Must be like sbp_...`
-
-**Contexto:** Pipeline falhava na autenticação com o Supabase CLI.
-
-**Causa:** O secret `SUPABASE_ACCESS_TOKEN` foi preenchido com a chave JWT (anon/service key) em vez do token pessoal do Supabase CLI.
-
-**Solução:** Gerar um token correto no formato `sbp_...` em supabase.com/dashboard/account/tokens e atualizar o secret no GitHub.
+**Causa:** Secret `SUPABASE_ACCESS_TOKEN` preenchido com JWT em vez do token pessoal do CLI.
+**Solução:** Gerado token correto `sbp_...` em supabase.com/dashboard/account/tokens.
+**Status:** Resolvido.
 
 ---
 
 ## Erro 3 — `password authentication failed`
-
-**Contexto:** Pipeline falhava ao tentar rodar migrações no banco.
-
-**Causa:** O secret `SUPABASE_DB_PASSWORD` estava incorreto.
-
-**Solução:** Resetar a senha do banco no dashboard do Supabase e atualizar o secret.
+**Causa:** `SUPABASE_DB_PASSWORD` incorreto.
+**Solução:** Resetada a senha no dashboard do Supabase.
+**Status:** Resolvido.
 
 ---
 
 ## Erro 4 — `mercadolivre-oauth function not found`
-
-**Contexto:** Pipeline falhava ao fazer deploy das Edge Functions.
-
-**Causa:** O `config.toml` referenciava a função `mercadolivre-oauth` que existia localmente mas não no Supabase remoto. O Supabase CLI tenta sincronizar o estado remoto e falha.
-
-**Tentativas:**
-- Remover a entrada do `config.toml` — não resolveu
-- Deploy explícito por nome — não resolveu
-- Deletar via Management API — não resolveu
-- Criar stub vazio da função — não resolveu
-
-**Solução:** Separar o workflow único em dois arquivos independentes:
-- `deploy-migrations.yml` — somente migrações
-- `deploy-functions.yml` — somente funções, com lista explícita de funções permitidas
+**Causa:** `config.toml` referenciava função inexistente no Supabase remoto.
+**Solução:** Separar workflow em `deploy-migrations.yml` + `deploy-functions.yml` com lista explícita.
+**Status:** Resolvido.
 
 ---
 
 ## Erro 5 — `HAVING sem GROUP BY` (SQLSTATE 42803)
-
-**Contexto:** Função SQL `calcular_oportunidades` falhava ao ser executada.
-
-**Causa:** A query usava `HAVING` sem ter um `GROUP BY` correspondente.
-
-**Solução:** Envolver a query inteira em uma subquery e usar `WHERE` na query externa para filtrar pelo score calculado.
+**Causa:** Função SQL usava HAVING sem GROUP BY.
+**Solução:** Reescrita com subquery e WHERE externo.
+**Status:** Resolvido.
 
 ---
 
 ## Erro 6 — `schema "cron" does not exist`
-
-**Contexto:** Tentativa de agendar o job de coleta via `cron.schedule()`.
-
-**Causa:** A extensão `pg_cron` não estava habilitada no projeto Supabase.
-
-**Solução:** Habilitar manualmente em Supabase Dashboard → Database → Extensions → pg_cron.
+**Causa:** Extensão `pg_cron` não habilitada.
+**Solução:** Habilitada em Dashboard → Extensions.
+**Status:** Resolvido.
 
 ---
 
 ## Erro 7 — `schema "net" does not exist`
-
-**Contexto:** Função SQL que chamava a Edge Function via HTTP falhava.
-
-**Causas:**
-1. A extensão `pg_net` não estava habilitada.
-2. O placeholder `<COLE_SUA_SERVICE_ROLE_KEY_AQUI>` não havia sido substituído pela chave real.
-
-**Solução:** Habilitar `pg_net` nas extensões e recriar a função com a service role key real.
+**Causa:** `pg_net` não habilitado + placeholder de credencial não substituído.
+**Solução:** Habilitado `pg_net` e recriada função com key real.
+**Status:** Resolvido.
 
 ---
 
-## Erro 8 — ML API retorna 403 (principal problema)
-
-**Contexto:** A Edge Function `search-offers` (e depois `daily-deal-discovery`) fazia chamadas à API do Mercado Livre e recebia 403 Forbidden.
-
-**Causa confirmada:** O Mercado Livre bloqueia requisições originadas de IPs de provedores cloud (AWS, onde o Supabase roda). O bloqueio é baseado em IP, não em credenciais.
-
-**Tentativa 1:** Usar OAuth `client_credentials` com `ML_CLIENT_ID` e `ML_CLIENT_SECRET` para obter token e fazer chamadas autenticadas.
-- Resultado: 403 persistiu. O token é válido, mas o IP da AWS é bloqueado independentemente da autenticação.
-
-**Tentativa 2:** Confirmar o bloqueio acessando a URL da API diretamente no browser do usuário.
-- Resultado: Browser retornou dados normalmente. Confirmado que o bloqueio é específico para IPs cloud.
-
-**Tentativa 3:** Pivot de arquitetura — limpar código que não funcionava e implementar nova arquitetura baseada em interesses do usuário (`usuario_interesses` + `ofertas_curadas` + worker `daily-deal-discovery`).
-- Resultado: A nova arquitetura funciona corretamente, mas o bloqueio 403 na ML API persiste.
-
-**Tentativa 4:** Usar Cloudflare Worker como proxy reverso para a ML API, esperando que os IPs da Cloudflare não fossem bloqueados.
-- Resultado: 403 retornado mesmo pelo Cloudflare Worker. ML bloqueia IPs da Cloudflare também.
+## Erro 8 — ML API retorna 403 em todos os ambientes
+**Causa:** Mercado Livre bloqueia IPs de provedores cloud (AWS, Cloudflare) e também bloqueia o token `client_credentials` para o endpoint de busca, mesmo a partir de IP residencial.
+**Tentativa 1:** OAuth `client_credentials` com token — 403 persiste.
+**Tentativa 2:** Cloudflare Worker como proxy — Cloudflare IPs também bloqueados.
+**Tentativa 3:** Worker local (Mac) com IP residencial — 403 mesmo localmente.
+**Conclusão:** ML bloqueia o tipo de app/token para o endpoint de busca. Decisão: migrar para SerpAPI.
+**Status:** Abandonado. Substituído por SerpAPI.
 
 ---
 
-## Estado atual
+## Erro 9 — SerpAPI retorna 0 produtos com operador `site:`
+**Causa:** A query montada com `site:mercadolivre.com.br OR site:amazon.com.br` não é suportada pelo Google Shopping — retorna array `shopping_results` vazio.
+**Solução:** Removido o operador `site:` da query. Filtragem de lojas feita somente no código via `detectarLoja()`.
+**Status:** Resolvido — passou a retornar 15 produtos.
 
-- Infraestrutura completa e funcionando: banco, migrações, RLS, Edge Functions, CI/CD, cron job
-- Único bloqueio: impossibilidade de acessar a ML Search API (`/sites/MLB/search`) a partir de qualquer servidor cloud ou edge network
+---
 
-## Próximos passos sugeridos
+## Erro 10 — 15 produtos encontrados mas 0 salvos
+**Causa:** O interesse de teste tinha `desconto_minimo = 20`. O Google Shopping raramente retorna `extracted_old_price`, então `percentual_desconto` calculado era 0 para todos os produtos, e nenhum passava no filtro de 20%.
+**Solução:** Atualizado `desconto_minimo = 0` no interesse de teste para validar o fluxo completo.
+**Status:** Parcialmente resolvido — o filtro de lojas passou a ser o novo bloqueio.
 
-| Opção | Descrição | Custo |
-|---|---|---|
-| **VPS com IP residencial** | Servidor barato (Hetzner ~€3/mês) rodando o worker com IP não bloqueado | ~R$20/mês |
-| **Proxy residencial** | Serviço como BrightData ou Smartproxy que roteia por IPs domésticos | ~R$100-300/mês |
-| **ML Affiliates API** | Verificar se a API específica do Programa de Afiliados tem endpoint diferente do Search | Gratuito |
-| **Fonte alternativa** | Usar outra API (Buscape, Zoom, Amazon PA-API) que não bloqueie cloud | Varia |
+---
+
+## Erro 11 — 0 produtos após filtro de lojas (`detectarLoja`)
+**Causa provável:** O Google Shopping Brasil retorna lojas como "Shoptime", "Kabum", "Magazine Luiza" etc. A função `detectarLoja()` usava comparação simples com `includes()` e descartava tudo que não fosse exatamente "mercado livre", "amazon" ou "shopee".
+**Tentativa 1:** Adicionados logs de diagnóstico com `console.log` — logs não aparecem nas abas de Invocations nem Details do Supabase.
+**Tentativa 2:** Reescrita do `detectarLoja()` com normalização (minúsculo, sem acentos) e múltiplas keywords por loja.
+**Tentativa 3:** Adicionado campo `lastRawDebug` público no adapter para expor dados brutos da SerpAPI no JSON de resposta.
+**Status:** Em investigação.
+
+---
+
+## Erro 12 — `TypeError: Cannot read properties of undefined`
+**Contexto:** Após as mudanças de diagnóstico, o worker passou a lançar TypeError dentro do `GoogleShoppingAdapter`.
+**Causa:** A SerpAPI estava retornando uma resposta inesperada (possivelmente erro de quota ou resposta não-JSON), e o código tentava acessar `.shopping_results` em um objeto `null` ou `undefined` sem proteção.
+**Solução aplicada:** Parsing defensivo com `.catch(() => null)` no `res.json()` e fallback para objeto vazio. Adicionado `if (data.error) throw new Error(...)` para expor o erro real da SerpAPI no log.
+**Suspeita:** Quota do plano gratuito da SerpAPI esgotada (100 buscas/mês). Cada teste de disparo consome 1 busca.
+**Status:** Aguardando próximo disparo para confirmar erro real via campo `serp_error` no log.
+
+---
+
+## Estado atual da arquitetura
+
+```
+pg_cron (a cada 12h)
+    ↓
+daily-discovery (Edge Function)
+    ↓ SerpAPI Google Shopping
+    ↓ filtra ML / Amazon / Shopee
+    ↓ upsert
+ofertas_curadas (Supabase)
+    ↓
+minha-curadoria (GET autenticado)
+    ↓
+App do afiliado
+```
+
+## Funções ativas
+
+| Função             | Descrição                          |
+|--------------------|------------------------------------|
+| daily-discovery    | Worker de coleta via SerpAPI       |
+| minha-curadoria    | GET ofertas curadas do usuário     |
+| buscar-precos      | Busca ad-hoc por produto           |
+| redirect-engine    | Encurtador + rastreio de cliques   |
+| create-link        | Criação de links afiliados         |
+
+## Próximo passo imediato
+
+Verificar em serpapi.com/dashboard quantas buscas foram consumidas.
+Se a quota estiver esgotada, aguardar renovação mensal ou fazer upgrade do plano.
+Após o próximo disparo bem-sucedido, o campo `serp_error` no JSON de resposta vai confirmar a causa raiz.

@@ -1,12 +1,11 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { GoogleShoppingAdapter } from '../_shared/GoogleShoppingAdapter.ts'
+import { GoogleShoppingAdapter } from '../_shared/adapters/GoogleShoppingAdapter.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_KEY  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-const SERPAPI_KEY  = Deno.env.get('SERPAPI_KEY')!
 
 const admin   = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } })
-const adapter = new GoogleShoppingAdapter(SERPAPI_KEY)
+const adapter = new GoogleShoppingAdapter()
 
 interface Interesse {
   id:              string
@@ -34,7 +33,7 @@ Deno.serve(async () => {
 
     log.push(`${interesses.length} interesses ativos`)
 
-    // Agrupa por termo de busca para evitar chamadas duplicadas à SerpAPI
+    // Agrupa por termo para evitar chamadas duplicadas à SerpAPI
     const grupos = new Map<string, Interesse[]>()
     for (const i of interesses as Interesse[]) {
       const chave = i.termo_busca ?? i.categoria_id ?? ''
@@ -47,20 +46,17 @@ Deno.serve(async () => {
     let totalSalvas = 0
 
     for (const [chave, grupo] of grupos) {
-      let produtos: Awaited<ReturnType<typeof adapter.buscarOfertasPorInteresse>> = []
-
-      try {
-        produtos = await adapter.buscarOfertasPorInteresse(chave, 0)
-        log.push(`"${chave}": ${produtos.length} produto(s) encontrado(s)`)
-        log.push(`[debug] ${JSON.stringify(adapter.lastRawDebug)}`)
-      } catch (err) {
-        log.push(`Erro na busca "${chave}": ${err}`)
-        continue
-      }
+      const produtos = await adapter.buscarOfertas(chave)
+      log.push(`"${chave}": ${produtos.length} produto(s) encontrado(s)`)
 
       for (const interesse of grupo) {
         const ofertas = produtos
-          .filter(p => p.percentual_desconto >= interesse.desconto_minimo)
+          .filter(p => {
+            if (interesse.desconto_minimo === 0) return true
+            if (!p.preco_atual || !p.preco_original) return false
+            const desc = ((p.preco_original - p.preco_atual) / p.preco_original) * 100
+            return desc >= interesse.desconto_minimo
+          })
           .map(p => ({
             user_id:             interesse.user_id,
             interesse_id:        interesse.id,
@@ -68,10 +64,12 @@ Deno.serve(async () => {
             external_id:         p.id,
             titulo:              p.titulo,
             url_original:        p.link_afiliado,
-            url_imagem:          p.imagem_url,
+            url_imagem:          p.imagem_url ?? null,
             preco_atual:         p.preco_atual,
-            preco_original:      p.preco_original,
-            percentual_desconto: p.percentual_desconto,
+            preco_original:      p.preco_original ?? p.preco_atual,
+            percentual_desconto: p.preco_original && p.preco_atual && p.preco_original > p.preco_atual
+              ? Math.round(((p.preco_original - p.preco_atual) / p.preco_original) * 10000) / 100
+              : 0,
             link_afiliado:       p.link_afiliado,
             expira_em:           new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
           }))
@@ -92,7 +90,6 @@ Deno.serve(async () => {
       await new Promise(r => setTimeout(r, 300))
     }
 
-    // Remove ofertas expiradas
     await admin.from('ofertas_curadas').delete().lt('expira_em', new Date().toISOString())
 
     log.push(`${totalSalvas} ofertas salvas/atualizadas`)
