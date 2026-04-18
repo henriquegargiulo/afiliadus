@@ -8,10 +8,10 @@ verify_jwt = false
 [functions.create-link]
 verify_jwt = true
 
-# search-offers aceita chamadas do scheduler (sem JWT) e de usuários (com JWT)
-[functions.search-offers]
+# daily-deal-discovery é chamado pelo pg_cron (sem JWT)
+[functions.daily-deal-discovery]
 verify_jwt = false
 
-# best-opportunities exige usuário autenticado
-[functions.best-opportunities]
+# minha-curadoria exige usuário autenticado
+[functions.minha-curadoria]
 verify_jwt = true

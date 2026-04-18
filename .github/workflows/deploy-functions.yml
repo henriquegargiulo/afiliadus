@@ -42,10 +42,15 @@ jobs:
       - name: Deploy changed functions
         if: steps.changes.outputs.functions != ''
         run: |
+          ALLOWED="redirect-engine create-link daily-deal-discovery minha-curadoria"
           echo "${{ steps.changes.outputs.functions }}" | while read fn; do
             [ -z "$fn" ] && continue
-            echo "→ Deployando $fn"
-            supabase functions deploy "$fn"
+            if echo "$ALLOWED" | grep -qw "$fn"; then
+              echo "→ Deployando $fn"
+              supabase functions deploy "$fn"
+            else
+              echo "⚠ Ignorando função desconhecida: $fn"
+            fi
           done
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
