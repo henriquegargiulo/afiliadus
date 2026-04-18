@@ -1,8 +1,5 @@
 project_id = "wfxaeibeyjvgvboypqtd"
 
-[functions.mercadolivre-oauth]
-verify_jwt = false
-
 # redirect-engine é público: sem JWT para permitir redirecionamento anônimo
 [functions.redirect-engine]
 verify_jwt = false
