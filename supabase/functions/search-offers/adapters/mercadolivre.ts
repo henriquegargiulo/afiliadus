@@ -1,15 +1,55 @@
 import type { AdapterResult, NormalizedProduct, SearchParams } from '../../_shared/marketplace.ts'
 
 const ML_API = 'https://api.mercadolibre.com'
-const SITE   = 'MLB' // Brasil
+const SITE   = 'MLB'
 
-async function fetchWithRetry(url: string, retries = 3): Promise<Response> {
+// Cache simples de token em memória (válido por 6h, ML expira em 21600s)
+let cachedToken: { value: string; expiresAt: number } | null = null
+
+async function getAccessToken(): Promise<string> {
+  if (cachedToken && Date.now() < cachedToken.expiresAt) {
+    return cachedToken.value
+  }
+
+  const clientId     = Deno.env.get('ML_CLIENT_ID')
+  const clientSecret = Deno.env.get('ML_CLIENT_SECRET')
+
+  if (!clientId || !clientSecret) {
+    throw new Error('ML_CLIENT_ID ou ML_CLIENT_SECRET não configurados nos secrets')
+  }
+
+  const res = await fetch(`${ML_API}/oauth/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type:    'client_credentials',
+      client_id:     clientId,
+      client_secret: clientSecret,
+    }),
+  })
+
+  if (!res.ok) {
+    throw new Error(`ML OAuth falhou: ${res.status}`)
+  }
+
+  const data = await res.json()
+  cachedToken = {
+    value:     data.access_token,
+    expiresAt: Date.now() + (data.expires_in - 60) * 1000, // 60s de margem
+  }
+
+  return cachedToken.value
+}
+
+async function fetchWithRetry(url: string, token: string, retries = 3): Promise<Response> {
   for (let i = 0; i < retries; i++) {
     const res = await fetch(url, {
-      headers: { 'Accept': 'application/json', 'User-Agent': 'afiliadus/1.0' }
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept':        'application/json',
+      },
     })
     if (res.status === 429) {
-      // Rate limit: aguarda backoff exponencial antes de tentar novamente
       await new Promise(r => setTimeout(r, 1000 * 2 ** i))
       continue
     }
@@ -20,8 +60,9 @@ async function fetchWithRetry(url: string, retries = 3): Promise<Response> {
 
 export async function searchMercadoLivre(params: SearchParams): Promise<AdapterResult> {
   try {
-    const url = `${ML_API}/sites/${SITE}/search?q=${encodeURIComponent(params.q)}&limit=${params.limit}&sort=relevance`
-    const res = await fetchWithRetry(url)
+    const token = await getAccessToken()
+    const url   = `${ML_API}/sites/${SITE}/search?q=${encodeURIComponent(params.q)}&limit=${params.limit}&sort=relevance`
+    const res   = await fetchWithRetry(url, token)
 
     if (!res.ok) {
       return { produtos: [], error: `ML API erro: ${res.status}` }
