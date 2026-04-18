@@ -6,3 +6,7 @@ verify_jwt = false
 # redirect-engine é público: sem JWT para permitir redirecionamento anônimo
 [functions.redirect-engine]
 verify_jwt = false
+
+# create-link exige usuário autenticado
+[functions.create-link]
+verify_jwt = true
