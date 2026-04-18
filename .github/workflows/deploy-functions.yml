@@ -30,14 +30,23 @@ jobs:
         id: changes
         run: |
           git fetch origin main --depth=2
-          CHANGED=$(git diff --name-only HEAD~1 HEAD -- 'supabase/functions/' \
-            | grep -oP 'supabase/functions/\K[^/]+' \
-            | grep -v '^_' \
-            | sort -u)
+          SHARED_CHANGED=$(git diff --name-only HEAD~1 HEAD -- 'supabase/functions/_shared/' | wc -l)
+
+          # Se _shared mudou, redeploya todas as funções
+          if [ "$SHARED_CHANGED" -gt 0 ]; then
+            CHANGED="redirect-engine create-link daily-discovery minha-curadoria buscar-precos"
+            echo "Shared mudou — redeploy completo"
+          else
+            CHANGED=$(git diff --name-only HEAD~1 HEAD -- 'supabase/functions/' \
+              | grep -oP 'supabase/functions/\K[^/]+' \
+              | grep -v '^_' \
+              | sort -u)
+          fi
+
           echo "functions<<EOF" >> $GITHUB_OUTPUT
           echo "$CHANGED" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-          echo "Funções alteradas: $CHANGED"
+          echo "Funções a deployar: $CHANGED"
 
       - name: Deploy changed functions
         if: steps.changes.outputs.functions != ''

@@ -1,3 +1,4 @@
+// v2 — usa GoogleShoppingAdapter com todas as lojas + product_link
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { GoogleShoppingAdapter } from '../_shared/adapters/GoogleShoppingAdapter.ts'
 
