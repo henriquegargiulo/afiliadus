@@ -26,8 +26,7 @@ export class GoogleShoppingAdapter implements IMarketplaceProvider {
     termo: string,
     descontoMinimo: number
   ): Promise<ProdutoOferta[]> {
-    const dominios = LOJAS.map(l => `site:${l.domain}`).join(' OR ')
-    const query    = `${termo} (${dominios})`
+    const query = termo
 
     const qs = new URLSearchParams({
       engine:  'google_shopping',
