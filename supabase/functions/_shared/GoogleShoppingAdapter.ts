@@ -39,14 +39,16 @@ export class GoogleShoppingAdapter implements IMarketplaceProvider {
     const res = await fetch(`${SERP_URL}?${qs}`)
     if (!res.ok) throw new Error(`SerpAPI ${res.status}: ${termo}`)
 
-    const data = (await res.json()) as SerpResponse & { error?: string; search_information?: unknown }
+    const raw  = await res.json().catch(() => null)
+    const data = (raw && typeof raw === 'object' ? raw : {}) as SerpResponse & { error?: string }
 
-    // Expõe dados brutos para diagnóstico via campo público
     this.lastRawDebug = {
-      total_bruto:      (data.shopping_results ?? []).length,
-      lojas_encontradas: (data.shopping_results ?? []).map(i => i.source),
-      serp_error:       data.error ?? null,
+      total_bruto:       (data.shopping_results ?? []).length,
+      lojas_encontradas: (data.shopping_results ?? []).map((i: SerpItem) => i.source),
+      serp_error:        data.error ?? null,
     }
+
+    if (data.error) throw new Error(`SerpAPI retornou erro: ${data.error}`)
 
     const items = data.shopping_results ?? []
     const comLoja = items.filter(item => detectarLoja(item.source, item.link) !== null)
