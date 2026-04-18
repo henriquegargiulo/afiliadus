@@ -42,7 +42,7 @@ jobs:
       - name: Deploy changed functions
         if: steps.changes.outputs.functions != ''
         run: |
-          ALLOWED="redirect-engine create-link daily-deal-discovery minha-curadoria"
+          ALLOWED="redirect-engine create-link daily-deal-discovery minha-curadoria buscar-precos"
           echo "${{ steps.changes.outputs.functions }}" | while read fn; do
             [ -z "$fn" ] && continue
             if echo "$ALLOWED" | grep -qw "$fn"; then

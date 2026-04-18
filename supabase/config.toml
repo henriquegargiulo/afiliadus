@@ -15,3 +15,7 @@ verify_jwt = false
 # minha-curadoria exige usuário autenticado
 [functions.minha-curadoria]
 verify_jwt = true
+
+# buscar-precos exige usuário autenticado
+[functions.buscar-precos]
+verify_jwt = true
