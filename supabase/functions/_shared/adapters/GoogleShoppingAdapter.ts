@@ -46,6 +46,22 @@ export class GoogleShoppingAdapter {
         return [];
       }
 
+      // Raio-X: estrutura bruta antes de qualquer filtro
+      if (data.shopping_results.length > 0) {
+        console.log('[Raio-X SerpAPI] Estrutura do primeiro item bruto:');
+        console.log(JSON.stringify(data.shopping_results[0], null, 2));
+
+        // deno-lint-ignore no-explicit-any
+        const resumoItens = data.shopping_results.map((i: any) => ({
+          source:          i.source,
+          title:           i.title?.substring(0, 20),
+          extracted_price: i.extracted_price,
+          price_string:    i.price,
+          has_link:        !!i.link,
+        }));
+        console.log('[Raio-X SerpAPI] Resumo dos itens:', JSON.stringify(resumoItens));
+      }
+
       const ofertasValidas: ProdutoOferta[] = [];
 
       for (const item of data.shopping_results) {
