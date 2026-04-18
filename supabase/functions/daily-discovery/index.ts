@@ -46,8 +46,9 @@ Deno.serve(async () => {
     let totalSalvas = 0
 
     for (const [chave, grupo] of grupos) {
-      const produtos = await adapter.buscarOfertas(chave)
+      const { produtos, debug } = await adapter.buscarOfertasComDebug(chave)
       log.push(`"${chave}": ${produtos.length} produto(s) encontrado(s)`)
+      if (debug) log.push(`[raio-x] ${JSON.stringify(debug)}`)
 
       for (const interesse of grupo) {
         const ofertas = produtos

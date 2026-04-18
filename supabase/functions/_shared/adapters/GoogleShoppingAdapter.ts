@@ -15,6 +15,13 @@ export class GoogleShoppingAdapter {
     this.apiKey = Deno.env.get('SERPAPI_KEY') || '';
   }
 
+  async buscarOfertasComDebug(termo: string): Promise<{ produtos: ProdutoOferta[]; debug: unknown }> {
+    const produtos = await this.buscarOfertas(termo)
+    return { produtos, debug: this._lastDebug }
+  }
+
+  private _lastDebug: unknown = null
+
   async buscarOfertas(termo: string): Promise<ProdutoOferta[]> {
     if (!this.apiKey) {
       console.error('[SerpApi] SERPAPI_KEY não configurada no ambiente.');
@@ -46,21 +53,16 @@ export class GoogleShoppingAdapter {
         return [];
       }
 
-      // Raio-X: estrutura bruta antes de qualquer filtro
-      if (data.shopping_results.length > 0) {
-        console.log('[Raio-X SerpAPI] Estrutura do primeiro item bruto:');
-        console.log(JSON.stringify(data.shopping_results[0], null, 2));
-
-        // deno-lint-ignore no-explicit-any
-        const resumoItens = data.shopping_results.map((i: any) => ({
-          source:          i.source,
-          title:           i.title?.substring(0, 20),
-          extracted_price: i.extracted_price,
-          price_string:    i.price,
-          has_link:        !!i.link,
-        }));
-        console.log('[Raio-X SerpAPI] Resumo dos itens:', JSON.stringify(resumoItens));
-      }
+      // Raio-X: captura estrutura bruta para diagnóstico
+      // deno-lint-ignore no-explicit-any
+      this._lastDebug = (data.shopping_results ?? []).slice(0, 5).map((i: any) => ({
+        source:          i.source,
+        title:           i.title?.substring(0, 30),
+        extracted_price: i.extracted_price,
+        price:           i.price,
+        has_link:        !!i.link,
+        link_sample:     i.link?.substring(0, 50),
+      }))
 
       const ofertasValidas: ProdutoOferta[] = [];
 
