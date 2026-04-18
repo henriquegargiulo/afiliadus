@@ -18,18 +18,23 @@ export interface IMarketplaceProvider {
   ): Promise<ProdutoOferta[]>
 }
 
-// Para adicionar uma nova loja no futuro, basta incluir uma entrada aqui.
-export const LOJAS: Array<{ source: string; domain: string; id: MarketplaceId }> = [
-  { source: 'mercado livre', domain: 'mercadolivre.com.br', id: 'mercadolivre' },
-  { source: 'amazon',        domain: 'amazon.com.br',       id: 'amazon'       },
-  { source: 'shopee',        domain: 'shopee.com.br',       id: 'shopee'       },
+// Para adicionar uma nova loja, inclua uma entrada aqui.
+export const LOJAS: Array<{ keywords: string[]; domain: string; id: MarketplaceId }> = [
+  { keywords: ['mercado livre', 'mercadolivre', 'mercado-livre'], domain: 'mercadolivre.com.br', id: 'mercadolivre' },
+  { keywords: ['amazon'],                                          domain: 'amazon.com.br',       id: 'amazon'       },
+  { keywords: ['shopee'],                                          domain: 'shopee.com.br',       id: 'shopee'       },
 ]
 
+function normalizar(s: string): string {
+  return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+}
+
 export function detectarLoja(source: string, link: string): MarketplaceId | null {
-  const s = source.toLowerCase()
-  const l = link.toLowerCase()
+  const s = normalizar(source)
+  const l = normalizar(link)
   for (const loja of LOJAS) {
-    if (s.includes(loja.source) || l.includes(loja.domain)) return loja.id
+    if (loja.keywords.some(k => s.includes(k) || l.includes(k))) return loja.id
+    if (l.includes(loja.domain)) return loja.id
   }
   return null
 }

@@ -1,4 +1,4 @@
-import { IMarketplaceProvider, ProdutoOferta, LOJAS, detectarLoja } from './interfaces.ts'
+import { IMarketplaceProvider, ProdutoOferta, detectarLoja } from './interfaces.ts'
 
 const SERP_URL = 'https://serpapi.com/search.json'
 
@@ -26,11 +26,9 @@ export class GoogleShoppingAdapter implements IMarketplaceProvider {
     termo: string,
     descontoMinimo: number
   ): Promise<ProdutoOferta[]> {
-    const query = termo
-
     const qs = new URLSearchParams({
       engine:  'google_shopping',
-      q:       query,
+      q:       termo,
       gl:      'br',
       hl:      'pt',
       num:     '20',
@@ -43,13 +41,22 @@ export class GoogleShoppingAdapter implements IMarketplaceProvider {
     const data = (await res.json()) as SerpResponse
     const items = data.shopping_results ?? []
 
-    return items
-      .filter(item => detectarLoja(item.source, item.link) !== null)
+    // Diagnóstico: log dos resultados brutos antes de qualquer filtro
+    console.log(`[SerpAPI] "${termo}" → ${items.length} resultados brutos`)
+    console.log('[SerpAPI] Lojas encontradas:', items.map(i => i.source))
+
+    const comLoja = items.filter(item => detectarLoja(item.source, item.link) !== null)
+    console.log(`[SerpAPI] Após filtro de lojas: ${comLoja.length} produto(s)`)
+
+    return comLoja
       .filter(item => {
         if (!item.extracted_price) return false
+
+        // Sem preço original: passa se descontoMinimo for 0
         if (!item.extracted_old_price || item.extracted_old_price <= item.extracted_price) {
           return descontoMinimo === 0
         }
+
         const desc = ((item.extracted_old_price - item.extracted_price) / item.extracted_old_price) * 100
         return desc >= descontoMinimo
       })
