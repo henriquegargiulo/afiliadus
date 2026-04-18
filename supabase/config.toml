@@ -8,11 +8,7 @@ verify_jwt = false
 [functions.create-link]
 verify_jwt = true
 
-# daily-deal-discovery é chamado pelo pg_cron (sem JWT)
-[functions.daily-deal-discovery]
-verify_jwt = false
-
-# daily-discovery: versão cloud-native via SerpAPI (substitui daily-deal-discovery)
+# daily-discovery: chamado pelo pg_cron (sem JWT), usa SerpAPI
 [functions.daily-discovery]
 verify_jwt = false
 
