@@ -64,7 +64,7 @@ export class GoogleShoppingAdapter {
       // deno-lint-ignore no-explicit-any
       for (const item of data.shopping_results as any[]) {
         // Aceita qualquer loja — comparador de preços geral
-        const link = item.product_link || item.link || null;
+        const link = item.link || item.product_link || null;
         if (!link || !item.title || !item.extracted_price) continue;
 
         const lojaId = this.normalizarLoja(item.source);
