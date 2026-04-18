@@ -34,7 +34,13 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
-      # Deploy explícito por função — evita tentar deployar funções removidas no projeto remoto
+      # Remove funções órfãs do projeto remoto (|| true ignora erro se já não existir)
+      - name: Remove orphaned functions
+        run: supabase functions delete mercadolivre-oauth || true
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      # Deploy explícito por função
       - name: Deploy Edge Functions
         run: |
           supabase functions deploy redirect-engine
