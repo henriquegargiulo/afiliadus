@@ -54,8 +54,8 @@ export class GoogleShoppingAdapter {
           ofertasValidas.push({
             id:             item.product_id || crypto.randomUUID(),
             titulo:         item.title,
-            preco_atual:    this.extrairPreco(item.price),
-            preco_original: this.extrairPreco(item.extracted_old_price),
+            preco_atual:    item.extracted_price ?? this.extrairPreco(item.price),
+            preco_original: item.extracted_old_price ?? this.extrairPreco(item.old_price),
             link_afiliado:  item.link,
             imagem_url:     item.thumbnail,
             marketplace_id: lojaDetectada,
