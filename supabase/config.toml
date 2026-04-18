@@ -10,3 +10,11 @@ verify_jwt = false
 # create-link exige usuário autenticado
 [functions.create-link]
 verify_jwt = true
+
+# search-offers aceita chamadas do scheduler (sem JWT) e de usuários (com JWT)
+[functions.search-offers]
+verify_jwt = false
+
+# best-opportunities exige usuário autenticado
+[functions.best-opportunities]
+verify_jwt = true
