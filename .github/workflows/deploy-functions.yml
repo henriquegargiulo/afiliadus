@@ -1,0 +1,50 @@
+name: Deploy → Edge Functions
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'supabase/functions/**'
+
+jobs:
+  deploy:
+    name: Deploy Edge Functions
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link Supabase project
+        run: supabase link --project-ref wfxaeibeyjvgvboypqtd
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Detect changed functions
+        id: changes
+        run: |
+          git fetch origin main --depth=2
+          CHANGED=$(git diff --name-only HEAD~1 HEAD -- 'supabase/functions/' \
+            | grep -oP 'supabase/functions/\K[^/]+' \
+            | grep -v '^_' \
+            | sort -u)
+          echo "functions<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "Funções alteradas: $CHANGED"
+
+      - name: Deploy changed functions
+        if: steps.changes.outputs.functions != ''
+        run: |
+          echo "${{ steps.changes.outputs.functions }}" | while read fn; do
+            [ -z "$fn" ] && continue
+            echo "→ Deployando $fn"
+            supabase functions deploy "$fn"
+          done
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
