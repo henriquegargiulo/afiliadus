@@ -6,10 +6,15 @@ const ANON_KEY      = Deno.env.get('SUPABASE_ANON_KEY')!
 const SERVICE_KEY   = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 const CACHE_MINUTES = 60
 
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...CORS },
   })
 }
 
@@ -27,6 +32,7 @@ function normalizarProduto(row: Record<string, unknown>) {
 }
 
 Deno.serve(async (req: Request) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   if (req.method !== 'GET') return json({ error: 'Method Not Allowed' }, 405)
 
   const authHeader = req.headers.get('Authorization')
