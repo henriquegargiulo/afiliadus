@@ -1,3 +1,4 @@
+// verify_jwt=false — auth handled in code via getUser() (ES256 not supported by runtime)
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { GoogleShoppingAdapter } from '../_shared/adapters/GoogleShoppingAdapter.ts'
 
