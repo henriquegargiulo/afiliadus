@@ -16,6 +16,6 @@ verify_jwt = false
 [functions.minha-curadoria]
 verify_jwt = true
 
-# buscar-precos exige usuário autenticado
+# buscar-precos valida auth no código (getUser) — verify_jwt=true quebra com ES256
 [functions.buscar-precos]
-verify_jwt = true
+verify_jwt = false

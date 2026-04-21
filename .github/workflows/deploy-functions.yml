@@ -56,7 +56,11 @@ jobs:
             [ -z "$fn" ] && continue
             if echo "$ALLOWED" | grep -qw "$fn"; then
               echo "→ Deployando $fn"
-              supabase functions deploy "$fn"
+              if [ "$fn" = "buscar-precos" ]; then
+                supabase functions deploy "$fn" --no-verify-jwt
+              else
+                supabase functions deploy "$fn"
+              fi
             else
               echo "⚠ Ignorando função desconhecida: $fn"
             fi
