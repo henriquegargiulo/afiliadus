@@ -8,6 +8,14 @@ export interface ProdutoOferta {
   marketplace_id: string;
 }
 
+// Único ponto de verdade sobre lojas permitidas
+const LOJAS_PERMITIDAS: Record<string, string> = {
+  'mercado livre': 'mercadolivre',
+  'mercadolivre':  'mercadolivre',
+  'amazon':        'amazon',
+  'shopee':        'shopee',
+}
+
 export class GoogleShoppingAdapter {
   private apiKey: string;
   private _lastDebug: unknown = null;
@@ -49,25 +57,23 @@ export class GoogleShoppingAdapter {
         return [];
       }
 
-      // Raio-X: captura estrutura bruta para diagnóstico
       // deno-lint-ignore no-explicit-any
       this._lastDebug = (data.shopping_results as any[]).slice(0, 3).map((i: any) => ({
-        source:           i.source,
-        title:            i.title?.substring(0, 30),
-        extracted_price:  i.extracted_price,
-        link:             i.link?.substring(0, 60),
-        product_link:     i.product_link?.substring(0, 60),
+        source:          i.source,
+        title:           i.title?.substring(0, 30),
+        extracted_price: i.extracted_price,
+        loja_aceita:     this.normalizarLoja(i.source) !== null,
       }))
 
       const ofertasValidas: ProdutoOferta[] = [];
 
       // deno-lint-ignore no-explicit-any
       for (const item of data.shopping_results as any[]) {
-        // Aceita qualquer loja — comparador de preços geral
+        const lojaId = this.normalizarLoja(item.source);
+        if (!lojaId) continue; // descarta lojas fora de ML, Amazon e Shopee
+
         const link = item.link || item.product_link || null;
         if (!link || !item.title || !item.extracted_price) continue;
-
-        const lojaId = this.normalizarLoja(item.source);
 
         ofertasValidas.push({
           id:             item.product_id || crypto.randomUUID(),
@@ -88,20 +94,14 @@ export class GoogleShoppingAdapter {
     }
   }
 
-  private normalizarLoja(sourceNome?: string): string {
-    if (!sourceNome) return 'desconhecido';
+  // Retorna null para lojas não permitidas — produtos serão descartados pelo chamador
+  private normalizarLoja(sourceNome?: string): string | null {
+    if (!sourceNome) return null;
     const n = sourceNome.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    if (n.includes('mercado livre') || n.includes('mercadolivre')) return 'mercadolivre';
-    if (n.includes('amazon'))         return 'amazon';
-    if (n.includes('shopee'))         return 'shopee';
-    if (n.includes('magazine luiza') || n.includes('magalu')) return 'magalu';
-    if (n.includes('americanas'))     return 'americanas';
-    if (n.includes('submarino'))      return 'submarino';
-    if (n.includes('shoptime'))       return 'shoptime';
-    if (n.includes('kabum'))          return 'kabum';
-    if (n.includes('carrefour'))      return 'carrefour';
-    if (n.includes('havan'))          return 'havan';
-    return n.replace(/\s+/g, '_').substring(0, 50);
+    for (const [chave, id] of Object.entries(LOJAS_PERMITIDAS)) {
+      if (n.includes(chave)) return id;
+    }
+    return null;
   }
 
   // deno-lint-ignore no-explicit-any
