@@ -1,6 +1,6 @@
-// v3 — perfis_afiliados + watchlist + filtro ML/Amazon/Shopee
+// v4 — cacheBuscas explícito + deduplicação garantida por termo
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { GoogleShoppingAdapter } from '../_shared/adapters/GoogleShoppingAdapter.ts'
+import { GoogleShoppingAdapter, type ProdutoOferta } from '../_shared/adapters/GoogleShoppingAdapter.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_KEY  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -15,7 +15,7 @@ interface Perfil {
   user_id: string; nichos_interesse: string[]; volume_ofertas_diario: number
 }
 interface WatchlistItem {
-  id: string; user_id: string; titulo_produto: string; preco_alvo: number | null
+  user_id: string; titulo_produto: string; preco_alvo: number | null
 }
 
 function calcDesc(atual: number, original: number | null) {
@@ -23,10 +23,7 @@ function calcDesc(atual: number, original: number | null) {
   return Math.round(((original - atual) / original) * 10000) / 100
 }
 
-function montarOferta(userId: string, interesseId: string | null, p: {
-  id: string; titulo: string; preco_atual: number | null; preco_original?: number | null
-  link_afiliado: string; imagem_url: string | null; marketplace_id: string
-}) {
+function montarOferta(userId: string, interesseId: string | null, p: ProdutoOferta) {
   return {
     user_id:             userId,
     interesse_id:        interesseId,
@@ -48,7 +45,7 @@ Deno.serve(async () => {
   const log: string[] = []
 
   try {
-    // 1. Carregar interesses ativos
+    // ── 1. Carregar dados base ───────────────────────────────────────────────
     const { data: interesses, error: intErr } = await admin
       .from('usuario_interesses')
       .select('id, user_id, termo_busca, desconto_minimo')
@@ -60,10 +57,13 @@ Deno.serve(async () => {
 
     const userIds = [...new Set((interesses as Interesse[]).map(i => i.user_id))]
 
-    // 2. Carregar perfis e watchlists em paralelo
     const [{ data: perfisRaw }, { data: watchlistRaw }] = await Promise.all([
-      admin.from('perfis_afiliados').select('user_id, nichos_interesse, volume_ofertas_diario').in('user_id', userIds),
-      admin.from('produto_watchlist').select('id, user_id, titulo_produto, preco_alvo').in('user_id', userIds),
+      admin.from('perfis_afiliados')
+           .select('user_id, nichos_interesse, volume_ofertas_diario')
+           .in('user_id', userIds),
+      admin.from('produto_watchlist')
+           .select('user_id, titulo_produto, preco_alvo')
+           .in('user_id', userIds),
     ])
 
     const perfis = new Map<string, Perfil>(
@@ -75,15 +75,20 @@ Deno.serve(async () => {
       watchlistPorUser.get(w.user_id)!.push(w)
     }
 
-    // 3. Montar termos de busca por usuário
-    // Prioridade: interesses explícitos > nichos do perfil > termos da watchlist
-    const termosGlobais = new Map<string, { userIds: string[]; interesseIdPorUser: Map<string, string | null> }>()
+    // ── 2. Coletar todos os termos únicos de todos os usuários ───────────────
+    // termosParaUsuarios mapeia: termo → { users que o querem, interesse_id por user }
+    const termosParaUsuarios = new Map<string, {
+      userIds: string[]
+      interesseIdPorUser: Map<string, string | null>
+    }>()
 
     function registrarTermo(termo: string, userId: string, interesseId: string | null) {
-      if (!termosGlobais.has(termo)) {
-        termosGlobais.set(termo, { userIds: [], interesseIdPorUser: new Map() })
+      const chave = termo.trim().toLowerCase()
+      if (!chave) return
+      if (!termosParaUsuarios.has(chave)) {
+        termosParaUsuarios.set(chave, { userIds: [], interesseIdPorUser: new Map() })
       }
-      const entry = termosGlobais.get(termo)!
+      const entry = termosParaUsuarios.get(chave)!
       if (!entry.userIds.includes(userId)) entry.userIds.push(userId)
       if (!entry.interesseIdPorUser.has(userId)) entry.interesseIdPorUser.set(userId, interesseId)
     }
@@ -92,78 +97,74 @@ Deno.serve(async () => {
       if (i.termo_busca) registrarTermo(i.termo_busca, i.user_id, i.id)
     }
     for (const [userId, perfil] of perfis) {
-      for (const nicho of perfil.nichos_interesse) {
-        registrarTermo(nicho, userId, null)
-      }
+      for (const nicho of perfil.nichos_interesse) registrarTermo(nicho, userId, null)
     }
     for (const [userId, items] of watchlistPorUser) {
-      for (const w of items) {
-        registrarTermo(w.titulo_produto, userId, null)
-      }
+      for (const w of items) registrarTermo(w.titulo_produto, userId, null)
     }
 
-    log.push(`${userIds.length} usuário(s) | ${termosGlobais.size} buscas únicas na SerpAPI`)
+    log.push(`${userIds.length} usuário(s) | ${termosParaUsuarios.size} termos únicos`)
 
-    // 4. Buscar na SerpAPI (uma vez por termo)
-    const resultadosPorTermo = new Map<string, Awaited<ReturnType<typeof adapter.buscarOfertasComDebug>>>()
-    for (const termo of termosGlobais.keys()) {
-      const resultado = await adapter.buscarOfertasComDebug(termo)
-      resultadosPorTermo.set(termo, resultado)
-      log.push(`"${termo}": ${resultado.produtos.length} produto(s) (ML/Amazon/Shopee)`)
-      await new Promise(r => setTimeout(r, 300))
+    // ── 3. Cache de buscas — SerpAPI chamada UMA vez por termo ──────────────
+    // Se N usuários rastrearem o mesmo produto, a API é chamada apenas 1 vez.
+    const cacheBuscas = new Map<string, ProdutoOferta[]>()
+
+    for (const termo of termosParaUsuarios.keys()) {
+      if (cacheBuscas.has(termo)) continue // já buscado nesta execução
+
+      const { produtos, debug } = await adapter.buscarOfertasComDebug(termo)
+      cacheBuscas.set(termo, produtos)
+      log.push(`[cache] "${termo}": ${produtos.length} produto(s)`)
+      if (debug) log.push(`[raio-x] ${JSON.stringify(debug)}`)
+      await new Promise(r => setTimeout(r, 300)) // respeita rate limit SerpAPI
     }
 
-    // 5. Distribuir resultados por usuário respeitando volume_ofertas_diario
+    // ── 4. Distribuir resultados por usuário ─────────────────────────────────
     let totalSalvas = 0
 
     for (const userId of userIds) {
-      const perfil = perfis.get(userId)
+      const perfil    = perfis.get(userId)
       const volumeMax = perfil?.volume_ofertas_diario ?? 10
       const watchlist = watchlistPorUser.get(userId) ?? []
-      const ofertasUsuario: ReturnType<typeof montarOferta>[] = []
+      const coletadas: ReturnType<typeof montarOferta>[] = []
 
-      // 5a. Watchlist: prioridade máxima — busca por título e verifica preco_alvo
+      // Prioridade 1 — watchlist com preco_alvo
       for (const w of watchlist) {
-        const resultado = resultadosPorTermo.get(w.titulo_produto)
-        if (!resultado) continue
-        for (const p of resultado.produtos) {
+        const chave    = w.titulo_produto.trim().toLowerCase()
+        const produtos = cacheBuscas.get(chave) ?? []
+        for (const p of produtos) {
           if (!p.preco_atual || !p.link_afiliado) continue
-          const atingiuAlvo = !w.preco_alvo || p.preco_atual <= w.preco_alvo
-          if (atingiuAlvo) {
-            ofertasUsuario.push(montarOferta(userId, null, p))
+          if (!w.preco_alvo || p.preco_atual <= w.preco_alvo) {
+            coletadas.push(montarOferta(userId, null, p))
           }
         }
       }
 
-      // 5b. Interesses e nichos
-      const interessesUser = (interesses as Interesse[]).filter(i => i.user_id === userId)
-      for (const i of interessesUser) {
+      // Prioridade 2 — interesses explícitos
+      for (const i of (interesses as Interesse[]).filter(x => x.user_id === userId)) {
         if (!i.termo_busca) continue
-        const resultado = resultadosPorTermo.get(i.termo_busca)
-        if (!resultado) continue
-        for (const p of resultado.produtos) {
+        const chave    = i.termo_busca.trim().toLowerCase()
+        const produtos = cacheBuscas.get(chave) ?? []
+        for (const p of produtos) {
           if (!p.preco_atual || !p.link_afiliado) continue
-          if (i.desconto_minimo > 0) {
-            const desc = calcDesc(p.preco_atual, p.preco_original ?? null)
-            if (desc < i.desconto_minimo) continue
-          }
-          ofertasUsuario.push(montarOferta(userId, i.id, p))
+          if (i.desconto_minimo > 0 && calcDesc(p.preco_atual, p.preco_original ?? null) < i.desconto_minimo) continue
+          coletadas.push(montarOferta(userId, i.id, p))
         }
       }
 
-      // Nichos do perfil
+      // Prioridade 3 — nichos do perfil
       for (const nicho of (perfil?.nichos_interesse ?? [])) {
-        const resultado = resultadosPorTermo.get(nicho)
-        if (!resultado) continue
-        for (const p of resultado.produtos) {
+        const chave    = nicho.trim().toLowerCase()
+        const produtos = cacheBuscas.get(chave) ?? []
+        for (const p of produtos) {
           if (!p.preco_atual || !p.link_afiliado) continue
-          ofertasUsuario.push(montarOferta(userId, null, p))
+          coletadas.push(montarOferta(userId, null, p))
         }
       }
 
-      // Deduplicar por external_id e limitar ao volume diário
+      // Deduplicar por external_id e limitar ao volume diário do perfil
       const vistos = new Set<string>()
-      const ofertasFinal = ofertasUsuario
+      const ofertasFinal = coletadas
         .filter(o => { if (vistos.has(o.external_id)) return false; vistos.add(o.external_id); return true })
         .slice(0, volumeMax)
 
@@ -174,18 +175,23 @@ Deno.serve(async () => {
         .upsert(ofertasFinal, { onConflict: 'user_id,external_id', ignoreDuplicates: false })
 
       if (upsertErr) {
-        log.push(`Erro user ${userId}: ${upsertErr.message}`)
+        log.push(`Erro user ${userId.substring(0, 8)}: ${upsertErr.message}`)
       } else {
         totalSalvas += ofertasFinal.length
-        log.push(`User ${userId.substring(0, 8)}: ${ofertasFinal.length}/${volumeMax} ofertas salvas`)
+        log.push(`User ${userId.substring(0, 8)}: ${ofertasFinal.length}/${volumeMax} ofertas`)
       }
     }
 
-    // 6. Limpar ofertas expiradas
+    // ── 5. Limpeza de ofertas expiradas ──────────────────────────────────────
     await admin.from('ofertas_curadas').delete().lt('expira_em', new Date().toISOString())
 
     log.push(`Total: ${totalSalvas} ofertas salvas/atualizadas`)
-    return Response.json({ success: true, log, ms: Date.now() - startedAt })
+    return Response.json({
+      success: true,
+      cache_stats: { termos_unicos: termosParaUsuarios.size, chamadas_api: cacheBuscas.size },
+      log,
+      ms: Date.now() - startedAt,
+    })
 
   } catch (err) {
     return Response.json({ success: false, error: String(err), log }, { status: 500 })
